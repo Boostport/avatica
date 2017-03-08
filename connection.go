@@ -2,6 +2,7 @@ package avatica
 
 import (
 	"database/sql/driver"
+
 	"github.com/Boostport/avatica/message"
 	"golang.org/x/net/context"
 )
@@ -14,12 +15,15 @@ type conn struct {
 
 // Prepare returns a prepared statement, bound to this connection.
 func (c *conn) Prepare(query string) (driver.Stmt, error) {
+	return c.prepare(context.Background(), query)
+}
 
+func (c *conn) prepare(ctx context.Context, query string) (driver.Stmt, error) {
 	if c.connectionId == "" {
 		return nil, driver.ErrBadConn
 	}
 
-	response, err := c.httpClient.post(context.Background(), &message.PrepareRequest{
+	response, err := c.httpClient.post(ctx, &message.PrepareRequest{
 		ConnectionId: c.connectionId,
 		Sql:          query,
 		MaxRowsTotal: c.config.maxRowsTotal,
@@ -64,17 +68,24 @@ func (c *conn) Close() error {
 
 // Begin starts and returns a new transaction.
 func (c *conn) Begin() (driver.Tx, error) {
+	return c.begin(context.Background(), isolationUseCurrent)
+}
 
+func (c *conn) begin(ctx context.Context, isolationLevel isoLevel) (driver.Tx, error) {
 	if c.connectionId == "" {
 		return nil, driver.ErrBadConn
 	}
 
-	_, err := c.httpClient.post(context.Background(), &message.ConnectionSyncRequest{
+	if isolationLevel == isolationUseCurrent {
+		isolationLevel = isoLevel(c.config.transactionIsolation)
+	}
+
+	_, err := c.httpClient.post(ctx, &message.ConnectionSyncRequest{
 		ConnectionId: c.connectionId,
 		ConnProps: &message.ConnectionProperties{
 			AutoCommit:           false,
 			HasAutoCommit:        true,
-			TransactionIsolation: c.config.transactionIsolation,
+			TransactionIsolation: uint32(isolationLevel),
 		},
 	})
 
@@ -89,7 +100,11 @@ func (c *conn) Begin() (driver.Tx, error) {
 
 // Exec prepares and executes a query and returns the result directly.
 func (c *conn) Exec(query string, args []driver.Value) (driver.Result, error) {
+	list := driverValueToNamedValue(args)
+	return c.exec(context.Background(), query, list)
+}
 
+func (c *conn) exec(ctx context.Context, query string, args []namedValue) (driver.Result, error) {
 	if c.connectionId == "" {
 		return nil, driver.ErrBadConn
 	}
@@ -98,7 +113,7 @@ func (c *conn) Exec(query string, args []driver.Value) (driver.Result, error) {
 		return nil, driver.ErrSkip
 	}
 
-	st, err := c.httpClient.post(context.Background(), &message.CreateStatementRequest{
+	st, err := c.httpClient.post(ctx, &message.CreateStatementRequest{
 		ConnectionId: c.connectionId,
 	})
 
@@ -106,7 +121,7 @@ func (c *conn) Exec(query string, args []driver.Value) (driver.Result, error) {
 		return nil, err
 	}
 
-	res, err := c.httpClient.post(context.Background(), &message.PrepareAndExecuteRequest{
+	res, err := c.httpClient.post(ctx, &message.PrepareAndExecuteRequest{
 		ConnectionId:      c.connectionId,
 		StatementId:       st.(*message.CreateStatementResponse).StatementId,
 		Sql:               query,
@@ -118,19 +133,21 @@ func (c *conn) Exec(query string, args []driver.Value) (driver.Result, error) {
 		return nil, err
 	}
 
-	// Currently there is only 1 ResultSet per response
+	// Currently there is only 1 ResultSet per response for exec
 	changed := int64(res.(*message.ExecuteResponse).Results[0].UpdateCount)
 
 	return &result{
 		affectedRows: changed,
 	}, nil
-
 }
 
 // Query prepares and executes a query and returns the result directly.
-// Query's optimizations are currently disabled due to CALCITE-1181.
 func (c *conn) Query(query string, args []driver.Value) (driver.Rows, error) {
+	list := driverValueToNamedValue(args)
+	return c.query(context.Background(), query, list)
+}
 
+func (c *conn) query(ctx context.Context, query string, args []namedValue) (driver.Rows, error) {
 	if c.connectionId == "" {
 		return nil, driver.ErrBadConn
 	}
@@ -139,7 +156,7 @@ func (c *conn) Query(query string, args []driver.Value) (driver.Rows, error) {
 		return nil, driver.ErrSkip
 	}
 
-	st, err := c.httpClient.post(context.Background(), &message.CreateStatementRequest{
+	st, err := c.httpClient.post(ctx, &message.CreateStatementRequest{
 		ConnectionId: c.connectionId,
 	})
 
@@ -147,7 +164,7 @@ func (c *conn) Query(query string, args []driver.Value) (driver.Rows, error) {
 		return nil, err
 	}
 
-	res, err := c.httpClient.post(context.Background(), &message.PrepareAndExecuteRequest{
+	res, err := c.httpClient.post(ctx, &message.PrepareAndExecuteRequest{
 		ConnectionId:      c.connectionId,
 		StatementId:       st.(*message.CreateStatementResponse).StatementId,
 		Sql:               query,
@@ -159,8 +176,7 @@ func (c *conn) Query(query string, args []driver.Value) (driver.Rows, error) {
 		return nil, err
 	}
 
-	// Currently there is only 1 ResultSet per response
-	resultSet := res.(*message.ExecuteResponse).Results[0]
+	resultSets := res.(*message.ExecuteResponse).Results
 
-	return newRows(c, st.(*message.CreateStatementResponse).StatementId, resultSet), nil
+	return newRows(c, st.(*message.CreateStatementResponse).StatementId, resultSets), nil
 }

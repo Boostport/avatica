@@ -2,9 +2,10 @@ package avatica
 
 import (
 	"database/sql/driver"
+	"time"
+
 	"github.com/Boostport/avatica/message"
 	"golang.org/x/net/context"
-	"time"
 )
 
 type stmt struct {
@@ -45,12 +46,17 @@ func (s *stmt) NumInput() int {
 // Exec executes a query that doesn't return rows, such
 // as an INSERT or UPDATE.
 func (s *stmt) Exec(args []driver.Value) (driver.Result, error) {
+	list := driverValueToNamedValue(args)
+	return s.exec(context.Background(), list)
+}
+
+func (s *stmt) exec(ctx context.Context, args []namedValue) (driver.Result, error) {
 
 	if s.conn.connectionId == "" {
 		return nil, driver.ErrBadConn
 	}
 
-	res, err := s.conn.httpClient.post(context.Background(), &message.ExecuteRequest{
+	res, err := s.conn.httpClient.post(ctx, &message.ExecuteRequest{
 		StatementHandle:    &s.handle,
 		ParameterValues:    s.parametersToTypedValues(args),
 		FirstFrameMaxSize:  uint64(s.conn.config.frameMaxSize), //TODO: Due to CALCITE-1353, if frameMaxSize == -1, it overflows to 18446744073709551615 due to the conversion to uint64, which is basically all rows.
@@ -72,12 +78,16 @@ func (s *stmt) Exec(args []driver.Value) (driver.Result, error) {
 // Query executes a query that may return rows, such as a
 // SELECT.
 func (s *stmt) Query(args []driver.Value) (driver.Rows, error) {
+	list := driverValueToNamedValue(args)
+	return s.query(context.Background(), list)
+}
 
+func (s *stmt) query(ctx context.Context, args []namedValue) (driver.Rows, error) {
 	if s.conn.connectionId == "" {
 		return nil, driver.ErrBadConn
 	}
 
-	res, err := s.conn.httpClient.post(context.Background(), &message.ExecuteRequest{
+	res, err := s.conn.httpClient.post(ctx, &message.ExecuteRequest{
 		StatementHandle:    &s.handle,
 		ParameterValues:    s.parametersToTypedValues(args),
 		FirstFrameMaxSize:  uint64(s.conn.config.frameMaxSize), //TODO: Due to CALCITE-1353, if frameMaxSize == -1, it overflows to 18446744073709551615 due to the conversion to uint64, which is basically all rows.
@@ -88,24 +98,22 @@ func (s *stmt) Query(args []driver.Value) (driver.Rows, error) {
 		return nil, err
 	}
 
-	// Currently there is only 1 ResultSet per response
-	resultSet := res.(*message.ExecuteResponse).Results[0]
+	resultSet := res.(*message.ExecuteResponse).Results
 
 	return newRows(s.conn, s.statementID, resultSet), nil
 }
 
-func (s *stmt) parametersToTypedValues(vals []driver.Value) []*message.TypedValue {
+func (s *stmt) parametersToTypedValues(vals []namedValue) []*message.TypedValue {
 
 	result := []*message.TypedValue{}
 
 	for i, val := range vals {
 		typed := message.TypedValue{}
-
-		if val == nil {
+		if val.Value == nil {
 			typed.Null = true
 		} else {
 
-			switch v := val.(type) {
+			switch v := val.Value.(type) {
 			case int64:
 				typed.Type = message.Rep_LONG
 				typed.NumberValue = v
@@ -119,13 +127,19 @@ func (s *stmt) parametersToTypedValues(vals []driver.Value) []*message.TypedValu
 				typed.Type = message.Rep_BYTE_STRING
 				typed.BytesValue = v
 			case string:
-				typed.Type = message.Rep_STRING
+
+				if s.parameters[i].TypeName == "DECIMAL" {
+					typed.Type = message.Rep_BIG_DECIMAL
+				} else {
+					typed.Type = message.Rep_STRING
+				}
 				typed.StringValue = v
+
 			case time.Time:
 				avaticaParameter := s.parameters[i]
 
 				switch avaticaParameter.TypeName {
-				case "TIME":
+				case "TIME", "UNSIGNED_TIME":
 					typed.Type = message.Rep_JAVA_SQL_TIME
 
 					// Because a location can have multiple time zones due to daylight savings,
@@ -136,7 +150,7 @@ func (s *stmt) parametersToTypedValues(vals []driver.Value) []*message.TypedValu
 					base := time.Date(v.Year(), v.Month(), v.Day(), 0, 0, 0, 0, time.FixedZone(zone, offset))
 					typed.NumberValue = int64(v.Sub(base).Nanoseconds() / int64(time.Millisecond))
 
-				case "DATE":
+				case "DATE", "UNSIGNED_DATE":
 					typed.Type = message.Rep_JAVA_SQL_DATE
 
 					// Because a location can have multiple time zones due to daylight savings,
@@ -147,7 +161,7 @@ func (s *stmt) parametersToTypedValues(vals []driver.Value) []*message.TypedValu
 					base := time.Date(1970, 1, 1, 0, 0, 0, 0, time.FixedZone(zone, offset))
 					typed.NumberValue = int64(v.Sub(base) / (24 * time.Hour))
 
-				case "TIMESTAMP":
+				case "TIMESTAMP", "UNSIGNED_TIMESTAMP":
 					typed.Type = message.Rep_JAVA_SQL_TIMESTAMP
 
 					// Because a location can have multiple time zones due to daylight savings,
