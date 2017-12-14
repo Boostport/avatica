@@ -6,6 +6,8 @@ import (
 
 	"math"
 
+	"errors"
+
 	"github.com/Boostport/avatica/message"
 	"golang.org/x/net/context"
 )
@@ -77,8 +79,14 @@ func (s *stmt) exec(ctx context.Context, args []namedValue) (driver.Result, erro
 		return nil, err
 	}
 
+	results := res.(*message.ExecuteResponse).Results
+
+	if len(results) <= 0 {
+		return nil, errors.New("empty ResultSet in ExecuteResponse")
+	}
+
 	// Currently there is only 1 ResultSet per response
-	changed := int64(res.(*message.ExecuteResponse).Results[0].UpdateCount)
+	changed := int64(results[0].UpdateCount)
 
 	return &result{
 		affectedRows: changed,
@@ -123,7 +131,7 @@ func (s *stmt) query(ctx context.Context, args []namedValue) (driver.Rows, error
 
 func (s *stmt) parametersToTypedValues(vals []namedValue) []*message.TypedValue {
 
-	result := []*message.TypedValue{}
+	var result []*message.TypedValue
 
 	for i, val := range vals {
 		typed := message.TypedValue{}
