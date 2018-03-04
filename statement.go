@@ -2,11 +2,9 @@ package avatica
 
 import (
 	"database/sql/driver"
-	"time"
-
-	"math"
-
 	"errors"
+	"math"
+	"time"
 
 	"github.com/Boostport/avatica/message"
 	"golang.org/x/net/context"
