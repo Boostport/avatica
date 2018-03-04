@@ -2,14 +2,11 @@ package avatica
 
 import (
 	"database/sql/driver"
-	"io"
-	"time"
-
-	"reflect"
-
-	"math"
-
 	"fmt"
+	"io"
+	"math"
+	"reflect"
+	"time"
 
 	"github.com/Boostport/avatica/message"
 	"golang.org/x/net/context"
@@ -192,7 +189,7 @@ func newRows(conn *conn, statementID uint32, resultSets []*message.ResultSetResp
 				column.scanType = reflect.TypeOf("")
 
 			case "BOOLEAN":
-				column.scanType = reflect.TypeOf(bool(false))
+				column.scanType = reflect.TypeOf(false)
 
 			case "TIME", "DATE", "TIMESTAMP", "UNSIGNED_TIME", "UNSIGNED_DATE", "UNSIGNED_TIMESTAMP":
 				column.scanType = reflect.TypeOf(time.Time{})
