@@ -52,7 +52,11 @@ func (a *Driver) Open(dsn string) (driver.Conn, error) {
 		return nil, fmt.Errorf("Unable to create HTTP client: %s", err)
 	}
 
-	connectionId := uuid.NewV4().String()
+	connectionId, err := uuid.NewV4()
+
+	if err != nil {
+		return nil, fmt.Errorf("Error generating connection id: %s", err)
+	}
 
 	info := map[string]string{
 		"AutoCommit":  "true",
@@ -69,7 +73,7 @@ func (a *Driver) Open(dsn string) (driver.Conn, error) {
 
 	// Open a connection to the server
 	req := &message.OpenConnectionRequest{
-		ConnectionId: connectionId,
+		ConnectionId: connectionId.String(),
 		Info:         info,
 	}
 
@@ -84,7 +88,7 @@ func (a *Driver) Open(dsn string) (driver.Conn, error) {
 	}
 
 	conn := &conn{
-		connectionId: connectionId,
+		connectionId: connectionId.String(),
 		httpClient:   httpClient,
 		config:       config,
 	}
