@@ -1,3 +1,13 @@
+# Repository Deprecated
+The code has been donated to the [Apache Calcite](https://calcite.apache.org) project and is now part of the Apache
+Foundation.
+
+Development will continue in the new [apache/calcite-avatica-go](https://github.com/apache/calcite-avatica-go) repository.
+
+We recommend updating your import paths from `github.com/Boostport/avatica` to `github.com/apache/calcite-avatiga-go`.
+
+This repository will be archived, but still readable for backwards compatibility.
+
 # Apache Phoenix/Avatica SQL Driver
 [![GoDoc](https://godoc.org/github.com/Boostport/avatica?status.png)](https://godoc.org/github.com/Boostport/Avatica)
 [![wercker status](https://app.wercker.com/status/1abd1c7014e780ba7754decadb212451/s/master "wercker status")](https://app.wercker.com/project/byKey/1abd1c7014e780ba7754decadb212451)
